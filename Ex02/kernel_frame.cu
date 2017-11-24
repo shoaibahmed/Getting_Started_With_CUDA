@@ -3,6 +3,7 @@
 #include <math.h>
 
 #define MAX_THREADS_PER_BLOCK 1024
+#define DRAW_GRADIENT_MAP true
 
 __global__ void ColorBufferFillKernel(uchar3 *dary, float t, int DIMX, int DIMY, int numBlocksWithSameColor)
 {
@@ -10,8 +11,10 @@ __global__ void ColorBufferFillKernel(uchar3 *dary, float t, int DIMX, int DIMY,
 	int i = blockIdx.x * blockDim.x + threadIdx.x; 
 	int j = blockIdx.y * blockDim.y + threadIdx.y;
 	int offset = (i * DIMX) + (j);
-	
+
 	uchar3 color;
+	
+#if DRAW_GRADIENT_MAP
 	// color = make_uchar3(((float)i / DIMX) * 256, ((float)j / DIMY) * 256 , 0);
 	
 	// Distinct color for each block
@@ -40,6 +43,14 @@ __global__ void ColorBufferFillKernel(uchar3 *dary, float t, int DIMX, int DIMY,
 		(yProportion) * currentBlockColorY + (1.0 - yProportion) * lastBlockYColor, 0);
 
 	dary[offset] = color;
+#else
+	int blockColorIdxX = blockIdx.x / numBlocksWithSameColor;
+	int normalizerX = gridDim.x / numBlocksWithSameColor;
+	int blockColorIdxY = blockIdx.y / numBlocksWithSameColor;
+	int normalizerY = gridDim.y / numBlocksWithSameColor;
+	color = make_uchar3(((float)blockColorIdxX / normalizerX) * 255, ((float)blockColorIdxY / normalizerY) * 255, 0);
+	dary[offset] = color;
+#endif
 }
 
 void simulate(uchar3 *ptr, int tick, int w, int h)
