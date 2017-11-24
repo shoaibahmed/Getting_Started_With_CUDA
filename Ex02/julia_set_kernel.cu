@@ -1,27 +1,18 @@
 #include <stdio.h>
 #include <assert.h>
-#include <math.h>
+#include <cuComplex.h>
 
 #define MAX_THREADS_PER_BLOCK 1024
-#define DRAW_GRADIENT_MAP true
 
-__global__ void ColorBufferFillKernel(uchar3 *dary, float t, int DIMX, int DIMY, int numBlocksWithSameColor)
+__global__ void JuliaSetKernel(uchar3 *dary, float t, int DIMX, int DIMY, int numBlocksWithSameColor)
 {
 	/* Insert your kernel here */
 	int i = blockIdx.x * blockDim.x + threadIdx.x; 
 	int j = blockIdx.y * blockDim.y + threadIdx.y;
-
-	// Ignore threads outside the canvas range (imperfect division in number of blocks)
-	if (i >= DIMX)
-		return;
-	if (j >= DIMY)
-		return;
-
 	int offset = (i * DIMX) + (j);
 
 	uchar3 color;
 	
-#if DRAW_GRADIENT_MAP
 	// color = make_uchar3(((float)i / DIMX) * 256, ((float)j / DIMY) * 256 , 0);
 	
 	// Distinct color for each block
@@ -49,15 +40,6 @@ __global__ void ColorBufferFillKernel(uchar3 *dary, float t, int DIMX, int DIMY,
 	color = make_uchar3((xProportion) * currentBlockColorX + (1.0 - xProportion) * lastBlockXColor, 
 		(yProportion) * currentBlockColorY + (1.0 - yProportion) * lastBlockYColor, 0);
 
-#else
-	int blockColorIdxX = blockIdx.x / numBlocksWithSameColor;
-	int normalizerX = gridDim.x / numBlocksWithSameColor;
-	int blockColorIdxY = blockIdx.y / numBlocksWithSameColor;
-	int normalizerY = gridDim.y / numBlocksWithSameColor;
-	color = make_uchar3(((float)blockColorIdxX / normalizerX) * 255, ((float)blockColorIdxY / normalizerY) * 255, 0);
-	
-#endif
-
 	dary[offset] = color;
 }
 
@@ -80,7 +62,7 @@ void simulate(uchar3 *ptr, int tick, int w, int h)
 	Yourkernel
 	*/
 	int divisions = 3; // 9 blocks
-	int blockDim = 25;
+	int blockDim = 32;
 
 	// Pick the ideal dimensions of kernel
 
@@ -94,7 +76,7 @@ void simulate(uchar3 *ptr, int tick, int w, int h)
 	printf("Number of blocks with same color: %d\n", numBlocksWithSameColor);
 	
 	// Start the kernel
-	ColorBufferFillKernel<<<dimGrid, dimBlock>>>(ptr, tick, w, h, numBlocksWithSameColor);
+	JuliaSetKernel<<<dimGrid, dimBlock>>>(ptr, tick, w, h, numBlocksWithSameColor);
 
 	err=cudaGetLastError();
 	if(err!=cudaSuccess) {

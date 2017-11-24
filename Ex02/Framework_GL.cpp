@@ -29,8 +29,8 @@ void simulate(uchar3* ptr, int tick, int width, int height);
 
 void initialize(int *width, int *height) {
 	// initialize the dimension of the picture here
-	*width=900;
-	*height=900;
+	*width=1000;
+	*height=1000;
 }
 
 void key( unsigned char key, int x, int y )
