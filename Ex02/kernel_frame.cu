@@ -5,7 +5,7 @@
 #define MAX_THREADS_PER_BLOCK 1024
 #define DRAW_GRADIENT_MAP true
 
-__global__ void ColorBufferFillKernel(uchar3 *dary, float t, int DIMX, int DIMY, int numBlocksWithSameColor)
+__global__ void ColorBufferFillKernel(uchar3 *dary, float t, int DIMX, int DIMY, int numBlocksWithSameColorForH, int numBlocksWithSameColorForW)
 {
 	/* Insert your kernel here */
 	int i = blockIdx.x * blockDim.x + threadIdx.x; 
@@ -17,7 +17,8 @@ __global__ void ColorBufferFillKernel(uchar3 *dary, float t, int DIMX, int DIMY,
 	if (j >= DIMY)
 		return;
 
-	int offset = (i * DIMX) + (j);
+	// Since the array is ordered in WHC format
+	int offset = (i) + (j * DIMX);
 
 	uchar3 color;
 	
@@ -28,12 +29,12 @@ __global__ void ColorBufferFillKernel(uchar3 *dary, float t, int DIMX, int DIMY,
 	// color = make_uchar3(((float)i / DIMX) * 256, ((float)j / DIMY) * 256, 0);
 	// color = make_uchar3(((float)blockIdx.x / gridDim.x) * 255, ((float)blockIdx.y / gridDim.y) * 255, 0);
 
-	int blockColorIdxX = blockIdx.x / numBlocksWithSameColor + 1;
-	int normalizerX = gridDim.x / numBlocksWithSameColor + 1;
-	float xProportion = (float)((blockIdx.x % numBlocksWithSameColor) * blockDim.x + threadIdx.x) / (numBlocksWithSameColor * blockDim.x);
-	int blockColorIdxY = blockIdx.y / numBlocksWithSameColor + 1;
-	int normalizerY = gridDim.y / numBlocksWithSameColor + 1;
-	float yProportion = (float)((blockIdx.y % numBlocksWithSameColor) * blockDim.y + threadIdx.y) / (numBlocksWithSameColor * blockDim.y);
+	int blockColorIdxX = blockIdx.x / numBlocksWithSameColorForW + 1;
+	int normalizerX = gridDim.x / numBlocksWithSameColorForW + 1;
+	float xProportion = (float)((blockIdx.x % numBlocksWithSameColorForW) * blockDim.x + threadIdx.x) / (numBlocksWithSameColorForW * blockDim.x);
+	int blockColorIdxY = blockIdx.y / numBlocksWithSameColorForH + 1;
+	int normalizerY = gridDim.y / numBlocksWithSameColorForH + 1;
+	float yProportion = (float)((blockIdx.y % numBlocksWithSameColorForH) * blockDim.y + threadIdx.y) / (numBlocksWithSameColorForH * blockDim.y);
 
 	int currentBlockColorX = (((float)blockColorIdxX / normalizerX) * 255);
 	int currentBlockColorY = (((float)blockColorIdxY / normalizerY) * 255);
@@ -50,10 +51,10 @@ __global__ void ColorBufferFillKernel(uchar3 *dary, float t, int DIMX, int DIMY,
 		(yProportion) * currentBlockColorY + (1.0 - yProportion) * lastBlockYColor, 0);
 
 #else
-	int blockColorIdxX = blockIdx.x / numBlocksWithSameColor;
-	int normalizerX = gridDim.x / numBlocksWithSameColor;
-	int blockColorIdxY = blockIdx.y / numBlocksWithSameColor;
-	int normalizerY = gridDim.y / numBlocksWithSameColor;
+	int blockColorIdxX = blockIdx.x / numBlocksWithSameColorForW;
+	int normalizerX = gridDim.x / numBlocksWithSameColorForW;
+	int blockColorIdxY = blockIdx.y / numBlocksWithSameColorForH;
+	int normalizerY = gridDim.y / numBlocksWithSameColorForH;
 	color = make_uchar3(((float)blockColorIdxX / normalizerX) * 255, ((float)blockColorIdxY / normalizerY) * 255, 0);
 	
 #endif
@@ -90,11 +91,12 @@ void simulate(uchar3 *ptr, int tick, int w, int h)
 	printf("Grid dims: (%d, %d)\n", dimGrid.x, dimGrid.y);
 
 	// Determine the number of kernels to be colored the same
-	int numBlocksWithSameColor = floor(h / (divisions * blockDim));
-	printf("Number of blocks with same color: %d\n", numBlocksWithSameColor);
+	int numBlocksWithSameColorForH = floor(h / (divisions * blockDim));
+	int numBlocksWithSameColorForW = floor(w / (divisions * blockDim));
+	printf("Number of blocks with same color for H: %d and for W: %d\n", numBlocksWithSameColorForH, numBlocksWithSameColorForW);
 	
 	// Start the kernel
-	ColorBufferFillKernel<<<dimGrid, dimBlock>>>(ptr, tick, w, h, numBlocksWithSameColor);
+	ColorBufferFillKernel<<<dimGrid, dimBlock>>>(ptr, tick, w, h, numBlocksWithSameColorForH, numBlocksWithSameColorForW);
 
 	err=cudaGetLastError();
 	if(err!=cudaSuccess) {

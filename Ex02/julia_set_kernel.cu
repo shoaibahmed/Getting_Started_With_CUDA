@@ -1,23 +1,76 @@
 #include <stdio.h>
 #include <assert.h>
-#include <cuComplex.h>
+
+#include <curand.h>
+#include <curand_kernel.h>
 
 #define MAX_THREADS_PER_BLOCK 1024
+#define MAX_VAL 1.0
+#define NUM_VALUES 1000
 
-__global__ void JuliaSetKernel(uchar3 *dary, float t, int DIMX, int DIMY, int numBlocksWithSameColor)
+typedef struct __align__(8) { 
+    float real;
+    float img;
+} complex;
+
+__global__ complex operator+(const complex &a, const complex &b)
+{
+  complex result;
+  result.real = a.real + b.real;
+  result.img = a.img + b.img;
+
+  return result;
+}
+
+complex* complexData;
+/* CUDA's random number library uses curandState_t to keep track of the seed value
+     we will store a random state for every thread  */
+curandState_t* states;
+
+/* allocate space on the GPU for the random states */
+cudaMalloc((void**) &states, NUM_VALUES * sizeof(curandState_t));
+
+/* invoke the GPU to initialize all of the random states */
+init<<<N, 1>>>(time(0), states);
+
+/* this GPU kernel function is used to initialize the random states */
+__global__ void init(unsigned int seed, curandState_t* states) {
+  /* we have to initialize the state */
+  curand_init(seed, /* the seed can be the same for each core, here we pass the time in from the CPU */
+              blockIdx.x, /* the sequence number should be different for each core (unless you want all
+                             cores to get the same sequence of numbers for some reason - use thread id! */
+              0, /* the offset is how much extra we advance in the sequence for each call, can be 0 */
+              &states[blockIdx.x]);
+}
+
+/* this GPU kernel takes an array of states, and an array of ints, and puts a random int into each */
+__device__ void randoms(curandState_t* states, complex* numbers) {
+  /* curand works like rand - except that it takes a state as a parameter */
+float randomNumber = curand_uniform(&states[blockIdx.x]);
+  numbers[blockIdx.x] = randomNumber;
+}
+
+__global__ void JuliaSetKernel(uchar3 *dary, complex *complexData, int t, int DIMX, int DIMY, int numBlocksWithSameColor)
 {
 	/* Insert your kernel here */
 	int i = blockIdx.x * blockDim.x + threadIdx.x; 
 	int j = blockIdx.y * blockDim.y + threadIdx.y;
+
+	// Initialize the values of the complex data in the first iteration
+	if (t == 0)
+	{
+
+	}
+
+	// Ignore threads outside the canvas range (imperfect division in number of blocks)
+	if (i >= DIMX)
+		return;
+	if (j >= DIMY)
+		return;
+
 	int offset = (i * DIMX) + (j);
 
 	uchar3 color;
-	
-	// color = make_uchar3(((float)i / DIMX) * 256, ((float)j / DIMY) * 256 , 0);
-	
-	// Distinct color for each block
-	// color = make_uchar3(((float)i / DIMX) * 256, ((float)j / DIMY) * 256, 0);
-	// color = make_uchar3(((float)blockIdx.x / gridDim.x) * 255, ((float)blockIdx.y / gridDim.y) * 255, 0);
 
 	int blockColorIdxX = blockIdx.x / numBlocksWithSameColor + 1;
 	int normalizerX = gridDim.x / numBlocksWithSameColor + 1;
@@ -58,6 +111,12 @@ void simulate(uchar3 *ptr, int tick, int w, int h)
 
 	cudaEventRecord(start);
 
+	if (tick == 0)
+	{
+		// Take 1000 equidistant numbers
+		cudaMalloc((void **) &complexData, sizeof(complex) * NUM_VALUES);
+	}
+
 	/* Space for
 	Yourkernel
 	*/
@@ -76,7 +135,7 @@ void simulate(uchar3 *ptr, int tick, int w, int h)
 	printf("Number of blocks with same color: %d\n", numBlocksWithSameColor);
 	
 	// Start the kernel
-	JuliaSetKernel<<<dimGrid, dimBlock>>>(ptr, tick, w, h, numBlocksWithSameColor);
+	JuliaSetKernel<<<dimGrid, dimBlock>>>(ptr, complexData, tick, w, h, numBlocksWithSameColor);
 
 	err=cudaGetLastError();
 	if(err!=cudaSuccess) {
