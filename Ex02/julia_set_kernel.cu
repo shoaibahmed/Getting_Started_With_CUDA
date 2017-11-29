@@ -1,97 +1,63 @@
 #include <stdio.h>
 #include <assert.h>
-
-#include <curand.h>
-#include <curand_kernel.h>
+// #include <math.h>
 
 #define MAX_THREADS_PER_BLOCK 1024
-#define MAX_VAL 1.0
-#define NUM_VALUES 1000
+#define NUM_ITERATIONS 300
 
-typedef struct __align__(8) { 
-    float real;
-    float img;
-} complex;
+#define CONSTANT_1 -0.7885
+#define CONSTANT_2 0.7885
 
-__global__ complex operator+(const complex &a, const complex &b)
-{
-  complex result;
-  result.real = a.real + b.real;
-  result.img = a.img + b.img;
-
-  return result;
-}
-
-complex* complexData;
-/* CUDA's random number library uses curandState_t to keep track of the seed value
-     we will store a random state for every thread  */
-curandState_t* states;
-
-/* allocate space on the GPU for the random states */
-cudaMalloc((void**) &states, NUM_VALUES * sizeof(curandState_t));
-
-/* invoke the GPU to initialize all of the random states */
-init<<<N, 1>>>(time(0), states);
-
-/* this GPU kernel function is used to initialize the random states */
-__global__ void init(unsigned int seed, curandState_t* states) {
-  /* we have to initialize the state */
-  curand_init(seed, /* the seed can be the same for each core, here we pass the time in from the CPU */
-              blockIdx.x, /* the sequence number should be different for each core (unless you want all
-                             cores to get the same sequence of numbers for some reason - use thread id! */
-              0, /* the offset is how much extra we advance in the sequence for each call, can be 0 */
-              &states[blockIdx.x]);
-}
-
-/* this GPU kernel takes an array of states, and an array of ints, and puts a random int into each */
-__device__ void randoms(curandState_t* states, complex* numbers) {
-  /* curand works like rand - except that it takes a state as a parameter */
-float randomNumber = curand_uniform(&states[blockIdx.x]);
-  numbers[blockIdx.x] = randomNumber;
-}
-
-__global__ void JuliaSetKernel(uchar3 *dary, complex *complexData, int t, int DIMX, int DIMY, int numBlocksWithSameColor)
+//__global__ void JuliaSetKernel(uchar3 *dary, float* real, float* imaginary, int t, int DIMX, int DIMY, int numBlocksWithSameColor)
+__global__ void JuliaSetKernel(uchar3 *dary, int t, int DIMX, int DIMY)
 {
 	/* Insert your kernel here */
-	int i = blockIdx.x * blockDim.x + threadIdx.x; 
-	int j = blockIdx.y * blockDim.y + threadIdx.y;
+	// Since the array is ordered in WHC format
+	int offset = blockIdx.x * blockDim.x + threadIdx.x;
+	
+	// Initialize the value of z using the initial c
+	float z_realPart = ((threadIdx.x / ((float)blockDim.x)) * 2.0) - 1.0;
+	float z_imaginaryPart = ((blockIdx.x / ((float)gridDim.x)) * 2.0) - 1.0;
+	// printf ("Real: %f | Imaginary: %f | Offset: %d\n", z_realPart, z_imaginaryPart, offset);
 
-	// Initialize the values of the complex data in the first iteration
-	if (t == 0)
+	// Add C in Zn
+	// z_realPart = z_realPart - 0.8;
+	// z_imaginaryPart = z_imaginaryPart + 0.156;
+
+	// Perform 300 iterations
+	// float A;
+	// if ((t / 100) % 2 == 0)
+	// 	A = 0.08 + (t % 100) / 1220.0;
+	// else
+	// 	A = 0.08 + (99 - (t % 100)) / 1220.0;
+	float A = 0.08 + (t % 100) / 1220.0;
+
+	// Euler formula (cos(A) + i sin(A))
+	float eulerReal = CONSTANT_1 * cos(A);
+	float eulerImaginary = CONSTANT_2 * sin(A);
+	// printf ("Euler Real: %f | Euler Imaginary: %f\n", eulerReal, eulerImaginary);
+
+	for (int time = 0; time < NUM_ITERATIONS; time++)
 	{
+		// Update Zn based on the new values
+		// Complex multiplication: (x + yi)(u + vi) = (xu - yv) + (xv + yu)i
+		float z_realPart_new = ((z_realPart * z_realPart) - (z_imaginaryPart * z_imaginaryPart)) + eulerReal;
+		float z_imaginaryPart_new = ((z_realPart * z_imaginaryPart) + (z_realPart * z_imaginaryPart)) + eulerImaginary;
 
+		// Update the values
+		z_realPart = z_realPart_new;
+		z_imaginaryPart = z_imaginaryPart_new;
+		// printf ("Real: %f | Imaginary: %f | Offset: %d\n", z_realPart, z_imaginaryPart, offset);
 	}
-
-	// Ignore threads outside the canvas range (imperfect division in number of blocks)
-	if (i >= DIMX)
-		return;
-	if (j >= DIMY)
-		return;
-
-	int offset = (i * DIMX) + (j);
+	
+	// Determine if the value is different from others	
+	float zNormSquared = pow(z_realPart, 2) + pow(z_imaginaryPart, 2);
 
 	uchar3 color;
-
-	int blockColorIdxX = blockIdx.x / numBlocksWithSameColor + 1;
-	int normalizerX = gridDim.x / numBlocksWithSameColor + 1;
-	float xProportion = (float)((blockIdx.x % numBlocksWithSameColor) * blockDim.x + threadIdx.x) / (numBlocksWithSameColor * blockDim.x);
-	int blockColorIdxY = blockIdx.y / numBlocksWithSameColor + 1;
-	int normalizerY = gridDim.y / numBlocksWithSameColor + 1;
-	float yProportion = (float)((blockIdx.y % numBlocksWithSameColor) * blockDim.y + threadIdx.y) / (numBlocksWithSameColor * blockDim.y);
-
-	int currentBlockColorX = (((float)blockColorIdxX / normalizerX) * 255);
-	int currentBlockColorY = (((float)blockColorIdxY / normalizerY) * 255);
-
-	// Get last block colors
-	int lastBlockXColor = 0, lastBlockYColor = 0;
-	if (blockColorIdxX > 0)
-		lastBlockXColor = ((float)(blockColorIdxX - 1) / normalizerX) * 255;
-	if (blockColorIdxY > 0)
-		lastBlockYColor = ((float)(blockColorIdxY - 1) / normalizerX) * 255;
-
-	// color = make_uchar3(((float)blockColorIdxX / normalizerX) * 255, ((float)blockColorIdxY / normalizerY) * 255, 0);
-	color = make_uchar3((xProportion) * currentBlockColorX + (1.0 - xProportion) * lastBlockXColor, 
-		(yProportion) * currentBlockColorY + (1.0 - yProportion) * lastBlockYColor, 0);
+	if (zNormSquared < 2.0)
+		color = make_uchar3(255, 0, 0);
+	else
+		color = make_uchar3(0, 0, 0);
 
 	dary[offset] = color;
 }
@@ -111,32 +77,8 @@ void simulate(uchar3 *ptr, int tick, int w, int h)
 
 	cudaEventRecord(start);
 
-	if (tick == 0)
-	{
-		// Take 1000 equidistant numbers
-		cudaMalloc((void **) &complexData, sizeof(complex) * NUM_VALUES);
-	}
-
-	/* Space for
-	Yourkernel
-	*/
-	int divisions = 3; // 9 blocks
-	int blockDim = 32;
-
-	// Pick the ideal dimensions of kernel
-
-	dim3 dimBlock(blockDim, blockDim);
-	// dim3 dimBlock((int)(w / divisions), (int)(h / divisions));
-	dim3 dimGrid((w + dimBlock.x - 1) / dimBlock.x, (h + dimBlock.y - 1) / dimBlock.y);
-	printf("Grid dims: (%d, %d)\n", dimGrid.x, dimGrid.y);
-
-	// Determine the number of kernels to be colored the same
-	int numBlocksWithSameColor = floor(h / (divisions * blockDim));
-	printf("Number of blocks with same color: %d\n", numBlocksWithSameColor);
+	JuliaSetKernel<<<w, h>>>(ptr, tick, w, h);
 	
-	// Start the kernel
-	JuliaSetKernel<<<dimGrid, dimBlock>>>(ptr, complexData, tick, w, h, numBlocksWithSameColor);
-
 	err=cudaGetLastError();
 	if(err!=cudaSuccess) {
 		fprintf(stderr,"Error executing the kernel - %s\n", cudaGetErrorString(err));
