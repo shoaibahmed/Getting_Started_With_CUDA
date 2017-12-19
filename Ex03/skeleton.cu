@@ -8,16 +8,22 @@
 #define NUMMEM 1
 #define LNum 1
 
+#define MAX_BLOCKS 8
+#define MAX_THREADS 1024
+#define THREAD_STRIDE 32
+
+#define MAX_THREADS_PER_SM 1536
+
+#define TASK 1
+
 __global__ void kern_A(int spacing,float *A,float *B,float b) {
 	int i=threadIdx.x+blockIdx.x*spacing;
 	int j;
 	float a;
 	int ia;
-	for(ia=0;ia<ITER;ia++) 
-	{
+	for(ia=0; ia<ITER; ia++) {
 		a=A[i];
-		for(j=0;j<LLength;j++) 
-		{
+		for(j=0; j<LLength; j++) {
 			a=a+b;
 		}
 	}
@@ -29,11 +35,12 @@ __global__ void kern_M(int spacing,float *A,float *B,float b) {
 	int j;
 	float a;
 	int ia;
-	for(ia=0;ia<ITER;ia++) {
+	for(ia=0; ia<ITER; ia++) {
 		a=A[i];
-		for(j=0;j<LLength;j++) {
+		for(j=0; j<LLength; j++) {
 			a=A[(int)a];
-		}}
+		}
+	}
 	if(i==0) *B=a*1.0f;
 }
 
@@ -42,12 +49,13 @@ __global__ void kern_C(int spacing,float *A,float *B,float b) {
 	int j;
 	float a;
 	int ia;
-	for(ia=0;ia<ITER;ia++) {
+	for(ia=0; ia<ITER; ia++) {
 		a=A[i];
-		for(j=0;j<LLength;j++) {
+		for(j=0; j<LLength; j++) {
 			a=a+b;
 			a=A[(int)a];
-		}}
+		}
+	}
 	if(i==0) *B=a*1.0f;
 }
 
@@ -55,8 +63,8 @@ float control(float *A) {
 	float a;
 	a=A[0];
 	int i,j;
-	for(j=0;j<LLength;j++) {
-		for(i=0;i<NUMMEM;i++) {
+	for(j=0; j<LLength; j++) {
+		for(i=0; i<NUMMEM; i++) {
 			a=A[(int)a];
 		}
 	}
@@ -65,9 +73,45 @@ float control(float *A) {
 
 int main()
 {
-	int Threads=32;
-	int Warp=32;
-	int Blocks=8;
+	int device = 0;
+	cudaDeviceProp props;
+	cudaGetDevice(&device);
+	cudaGetDeviceProperties(&props, device);
+
+	int Warp=props.warpSize;
+	printf ("Warp size: %d | Steaming SMs: %d\n", Warp, props.multiProcessorCount);
+
+	FILE* outputFileFirstTask = fopen("Output-task01.txt", "w");
+	FILE* outputFileSecondTask = fopen("Output-task02.txt", "w");
+
+	for (int block=1; block <= MAX_BLOCKS; block++)
+	{
+		for (int thread=THREAD_STRIDE; thread <= MAX_THREADS; thread += THREAD_STRIDE)
+		{
+			int Threads=thread;
+			int Blocks=block * props.multiProcessorCount;
+
+			// Calculate theoretical occupancy
+			int maxActiveBlocksKernelA, maxActiveBlocksKernelM;
+			cudaOccupancyMaxActiveBlocksPerMultiprocessor(&maxActiveBlocksKernelA, kern_A, Threads, 0);
+			cudaOccupancyMaxActiveBlocksPerMultiprocessor(&maxActiveBlocksKernelM, kern_C, Threads, 0);
+
+			// Occupancy = active warps/Maximum active warps
+			int currentPossibleActiveBlocksKernelA = min(block, maxActiveBlocksKernelA);
+			int currentPossibleActiveBlocksKernelM = min(block, maxActiveBlocksKernelM);
+			int currentPossibleActiveWarpsKernelA = (currentPossibleActiveBlocksKernelA * Threads) / Warp;
+			int currentPossibleActiveWarpsKernelM = (currentPossibleActiveBlocksKernelM * Threads) / Warp;
+
+			int maxPossibleWarps = MAX_THREADS_PER_SM / Warp;
+			float occupancyKernelA = (float)currentPossibleActiveWarpsKernelA / maxPossibleWarps;
+			float occupancyKernelM = (float)currentPossibleActiveWarpsKernelM / maxPossibleWarps;
+			printf ("Blocks: %d | Threads: %d | Max active blocks (Kernel A): %d | Max active blocks (Kernel M): %d | Occupancy (Kernel A): %f | Occupancy (Kernel M): %f\n",
+				block, Threads, maxActiveBlocksKernelA, maxActiveBlocksKernelM, occupancyKernelA, occupancyKernelM);
+			fprintf (outputFileFirstTask, "%d,%d,%f,%f\n", block, Threads, occupancyKernelA, occupancyKernelM);
+		}
+	}
+
+#if TASK == 2
 	int Spacing=((LLength*LNum*NUMMEM+1)*Threads+Warp-1)/Warp * Warp;
 	long BS,i,j,Bbegin;
 	long size,OPS,MOPS;
@@ -99,12 +143,12 @@ int main()
 		printf("Fehler: %d\n",c_e);
 		exit(-1);
 	}
-	for(i=0;i<=Blocks;i++) {
+	for(i=0; i<=Blocks; i++) {
 		Bbegin=Threads+Spacing*i;
-		for(j=0;j<=Threads*LLength*LNum*NUMMEM;j++) {
+		for(j=0; j<=Threads*LLength*LNum*NUMMEM; j++) {
 			A[i*Spacing+j]=Bbegin+j;
 		}
-	} 
+	}
 	c_e=cudaMemcpy(d_A,A,size,cudaMemcpyHostToDevice);
 	if(c_e!=cudaSuccess) {
 		printf("Fehler: %d\n",c_e);
@@ -124,8 +168,9 @@ int main()
 		printf("Error : %d\n",c_e);
 		exit(-1);
 	}
+	c_e=cudaMemcpy(B,d_B,sizeof(float),cudaMemcpyDeviceToHost);
 	if(B!=control(A))
-		printf("Error: Result is %.1f and should be  %.1f\n",B,control(A));
+		printf("Error: Result is %.1f and should be  %.1f (no error for kern_A)\n",B,control(A));
 
 	cudaEventElapsedTime(&k_time, start, stop);
 	printf("%ld ar. Operations and %ld Memory operations\n",OPS,MOPS);
@@ -143,6 +188,11 @@ int main()
 	}
 	}
 	*/
+
 	cudaEventDestroy(start);
 	cudaEventDestroy(stop);
+#endif
+
+	fclose(outputFileFirstTask);
+	fclose(outputFileSecondTask);
 }
