@@ -4,8 +4,8 @@
 
 #define LLength 500
 #define ITER 100
-#define NUMADDS 31
-#define NUMMEM 31
+#define NUMADDS 1
+#define NUMMEM 1
 #define LNum 1
 
 #define MAX_BLOCKS 8
@@ -36,7 +36,53 @@ __global__ void kern_A(int spacing,float *A,float *B,float b) {
 #endif
 	int ia;
 	for(ia=0; ia<ITER; ia++) {
+#if NUMADDS >= 1
 		a=A[i];
+#endif
+#if NUMADDS >= 2
+		x0=A[i];
+#endif
+#if NUMADDS >= 3
+		x1=A[i];
+#endif
+#if NUMADDS >= 4
+		x2=A[i];
+#endif
+#if NUMADDS >= 5
+		x3=A[i];
+#endif
+#if NUMADDS >= 6
+		x4=A[i];
+		x5=A[i];
+		x6=A[i];
+		x7=A[i];
+		x8=A[i];
+		x9=A[i];
+#endif
+#if NUMADDS >= 12
+		x10=A[i];
+		x11=A[i];
+		x12=A[i];
+		x13=A[i];
+		x14=A[i];
+		x15=A[i];
+		x16=A[i];
+		x17=A[i];
+		x18=A[i];
+		x19=A[i];
+#endif
+#if NUMADDS >= 22
+		x20=A[i];
+		x21=A[i];
+		x22=A[i];
+		x23=A[i];
+		x24=A[i];
+		x25=A[i];
+		x26=A[i];
+		x27=A[i];
+		x28=A[i];
+		x29=A[i];
+#endif
 		for(j=0; j<LLength; j++) {
 #if NUMADDS >= 1
 			a=a+b;
@@ -130,7 +176,53 @@ __global__ void kern_M(int spacing,float *A,float *B,float b) {
 #endif
 	int ia;
 	for(ia=0; ia<ITER; ia++) {
+#if NUMADDS >= 1
 		a=A[i];
+#endif
+#if NUMADDS >= 2
+		x0=A[i];
+#endif
+#if NUMADDS >= 3
+		x1=A[i];
+#endif
+#if NUMADDS >= 4
+		x2=A[i];
+#endif
+#if NUMADDS >= 5
+		x3=A[i];
+#endif
+#if NUMADDS >= 6
+		x4=A[i];
+		x5=A[i];
+		x6=A[i];
+		x7=A[i];
+		x8=A[i];
+		x9=A[i];
+#endif
+#if NUMADDS >= 12
+		x10=A[i];
+		x11=A[i];
+		x12=A[i];
+		x13=A[i];
+		x14=A[i];
+		x15=A[i];
+		x16=A[i];
+		x17=A[i];
+		x18=A[i];
+		x19=A[i];
+#endif
+#if NUMADDS >= 22
+		x20=A[i];
+		x21=A[i];
+		x22=A[i];
+		x23=A[i];
+		x24=A[i];
+		x25=A[i];
+		x26=A[i];
+		x27=A[i];
+		x28=A[i];
+		x29=A[i];
+#endif
 		for(j=0; j<LLength; j++) {
 #if NUMMEM >= 1
 			a=A[(int)a];
@@ -203,17 +295,50 @@ __global__ void kern_M(int spacing,float *A,float *B,float b) {
 __global__ void kern_C(int spacing,float *A,float *B,float b) {
 	int i=threadIdx.x+blockIdx.x*spacing;
 	int j;
+	int k;
 	volatile float a;
 	int ia;
 	for(ia=0; ia<ITER; ia++) {
 		a=A[i];
 		for(j=0; j<LLength; j++) {
 			// Fixed LNum = 4
-			a=a+b;
-			a=a+b;
-			a=a+b;
-			a=a+b;
-			
+			for (k=0; k<NUMADDS; k++)
+			{
+				a=a+b;
+				a=a+b;
+				a=a+b;
+				a=a+b;
+			}
+// #if NUMADDS >= 1
+// 			a=a+b;
+// 			a=a+b;
+// 			a=a+b;
+// 			a=a+b;
+// #endif
+// #if NUMADDS >= 2
+// 			a=a+b;
+// 			a=a+b;
+// 			a=a+b;
+// 			a=a+b;
+// #endif
+// #if NUMADDS >= 3
+// 			a=a+b;
+// 			a=a+b;
+// 			a=a+b;
+// 			a=a+b;
+// #endif
+// #if NUMADDS >= 4
+// 			a=a+b;
+// 			a=a+b;
+// 			a=a+b;
+// 			a=a+b;
+// #endif
+// #if NUMADDS >= 5
+// 			a=a+b;
+// 			a=a+b;
+// 			a=a+b;
+// 			a=a+b;
+// #endif
 			a=A[(int)a];
 			a=A[(int)a];
 			a=A[(int)a];
@@ -249,6 +374,7 @@ int main()
 	FILE* outputFileFirstTask = fopen("Output-task01.txt", "w");
 	FILE* outputFileSecondTask = fopen("Output-task02.txt", "a");
 	FILE* outputFileThirdTask = fopen("Output-task03.txt", "a");
+	FILE* outputFileFourthTask = fopen("Output-task04.txt", "a");
 
 	for (int block=1; block <= MAX_BLOCKS; block++)
 	{
@@ -277,24 +403,25 @@ int main()
 	}
 
 	// Parameters for 50% and 100% occupancy
-	int BlockConfigs[2] = {8, 8};
-	int ThreadConfigs[2] = {128, 256};
-	printf ("Executing kernels for Task # 02 and Task # 03\n");
+	int BlockConfigs[3] = {8, 8, 8};
+	int ThreadConfigs[3] = {128, 256, 128};
+	printf ("Executing kernels for Task # 02, Task # 03 and Task # 04\n");
 
 	for (int configIter = 0; configIter < 2; configIter++)
 	{
-		// int Blocks = BlockConfigs[configIter] * props.multiProcessorCount;
-		// int Threads = ThreadConfigs[configIter] * props.multiProcessorCount;
-		int Blocks = BlockConfigs[configIter];
-		int Threads = ThreadConfigs[configIter];
+		int Blocks = BlockConfigs[configIter] * props.multiProcessorCount;
+		int Threads = ThreadConfigs[configIter] * props.multiProcessorCount;
+		// int Blocks = BlockConfigs[configIter];
+		// int Threads = ThreadConfigs[configIter];
 
 		int Spacing=((LLength*LNum*NUMMEM+1)*Threads+Warp-1)/Warp * Warp;
 		long BS,i,j,Bbegin;
 		long size,OPS,MOPS;
-		float k_A_time, k_M_time;
+		float k_A_time, k_M_time, k_C_time;
 		cudaError_t c_e;
 		cudaEvent_t start_kernel_A, stop_kernel_A;
 		cudaEvent_t start_kernel_M, stop_kernel_M;
+		cudaEvent_t start_kernel_C, stop_kernel_C;
 
 		float *A,*d_A,*d_B;
 		float B=0.0f;
@@ -368,6 +495,23 @@ int main()
 			exit(-1);
 		}
 
+		// Execute kernel C
+		cudaEventCreate(&start_kernel_C);
+		cudaEventCreate(&stop_kernel_C);
+
+		cudaEventRecord(start_kernel_C, 0);
+		kern_A<<<Blocks,Threads>>>(Spacing,d_A,d_B,B);
+		cudaEventRecord(stop_kernel_C, 0);
+		cudaEventSynchronize(stop_kernel_C);
+
+		c_e=cudaThreadSynchronize();
+		if(c_e!=cudaSuccess) {
+			printf("Error: %d\n",c_e);
+			exit(-1);
+		}
+
+		cudaEventElapsedTime(&k_C_time, start_kernel_C, stop_kernel_C);
+
 		// Copy back the results
 		c_e=cudaMemcpy(&B,d_B,sizeof(float),cudaMemcpyDeviceToHost);
 		if(B!=control(A))
@@ -376,14 +520,16 @@ int main()
 		cudaEventElapsedTime(&k_M_time, start_kernel_M, stop_kernel_M);
 
 		printf("%ld ar. Operations and %ld Memory operations\n", OPS, MOPS);
-		BW  =((long)(MOPS* sizeof(float))*1.e-06)/(k_M_time*1.e-3);
+		BW=((long)(MOPS* sizeof(float))*1.e-06)/(k_M_time*1.e-3);
 		perf=(OPS*1.e-6)/(k_A_time*1.e-3);
 		printf("Performance: %.2f GFlops and %.2f GB/s\n",perf,BW);
 
 		if (configIter == 0)
 			fprintf (outputFileSecondTask, "%d,%d,%ld,%ld,%f,%f,%f,%f\n", NUMADDS, NUMMEM, OPS, MOPS, k_A_time, k_M_time, perf, BW);
-		else
+		else if (configIter == 1)
 			fprintf (outputFileThirdTask, "%d,%d,%ld,%ld,%f,%f,%f,%f\n", NUMADDS, NUMMEM, OPS, MOPS, k_A_time, k_M_time, perf, BW);
+		else
+			fprintf (outputFileFourthTask, "%d,%d,%ld,%ld,%f,%f,%f,%f\n", NUMADDS, NUMMEM, OPS, MOPS, k_A_time, k_M_time, perf, BW);
 		printf ("%d,%d,%ld,%ld,%f,%f,%f,%f\n", NUMADDS, NUMMEM, OPS, MOPS, k_A_time, k_M_time, perf, BW);
 
 		/*
@@ -399,11 +545,14 @@ int main()
 
 		cudaEventDestroy(start_kernel_A);
 		cudaEventDestroy(start_kernel_M);
+		cudaEventDestroy(start_kernel_C);
 		cudaEventDestroy(stop_kernel_A);
 		cudaEventDestroy(stop_kernel_M);
+		cudaEventDestroy(stop_kernel_C);
 	}
 
 	fclose(outputFileFirstTask);
 	fclose(outputFileSecondTask);
 	fclose(outputFileThirdTask);
+	fclose(outputFileFourthTask);
 }
