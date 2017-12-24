@@ -1,4 +1,5 @@
 import os
+import sys
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -7,9 +8,12 @@ from matplotlib.collections import PolyCollection
 from matplotlib.collections import LineCollection
 from matplotlib.colors import colorConverter
 
-PLOT_3D = False
+if len(sys.argv) != 2:
+	print ("Usage: plotUtil.py <Task Number>")
+	exit(-1)
+task = int(sys.argv[1])
 
-if PLOT_3D:
+if task == 1:
 	# Load the file
 	blocks = {}
 
@@ -36,7 +40,7 @@ if PLOT_3D:
 	verts = []
 	blockIds = list(blocks.keys())
 	blockIds.sort()
-	zs = range(len(blockIds))
+	zs = range(1, len(blockIds)+1)
 	for blockId in blockIds:
 	    verts.append(list(zip(blocks[blockId]["threads"], blocks[blockId]["kernelA"])))
 
@@ -56,9 +60,9 @@ if PLOT_3D:
 	plt.close('all')
 
 else:
-	task = 3
 	fig, ax = plt.subplots()
-	ax.set_title('Performance (Kernel A) - Occupancy: ' + ('0.5' if task == 2 else '1.0'))
+	occupancy = ['0.5', ' 1.0', '0.5']
+	ax.set_title('Performance (Kernel A) - Occupancy: ' + occupancy[task-2])
 
 	numAdditions = []
 	numMemoryOperations = []
@@ -81,7 +85,7 @@ else:
 	plt.savefig('./Task0' + str(task) + '_KernelA_Performance.png', dpi=300)
 
 	fig, ax = plt.subplots()
-	ax.set_title('Bandwidth (Kernel M) - Occupancy: 0.5')
+	ax.set_title('Bandwidth (Kernel M) - Occupancy: ' + occupancy[task-2])
 
 	ax.plot(numMemoryOperations, kernelMBandwidth, 'r', label='Bandwidth (Kernel M)', linewidth=2.0)
 	ax.set_xlabel('Number of memory operations')
