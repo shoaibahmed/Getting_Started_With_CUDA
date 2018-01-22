@@ -1,3 +1,8 @@
+/* 
+References:
+http://cs.umw.edu/~finlayson/class/fall16/cpsc425/notes/cuda-random.html
+*/
+
 #include <stdio.h>
 #include <assert.h>
 
@@ -5,11 +10,14 @@
 #include "curand_kernel.h"
 
 #define MAX_THREADS_PER_BLOCK 1024
-#define ACCELERATION -9.81
+#define ACCELERATION_X 0.0
+#define ACCELERATION_Y -9.81
+// #define ACCELERATION_Y -0.00000981
 #define NUM_PARTICLES 200
 
 float* d_particlePosition = NULL;
 float* d_particleVelocity = NULL;
+float lastElapsedTime = 0.0;
 
 /* this GPU kernel function is used to initialize the random states */
 __global__ void init(unsigned int seed, curandState_t* states) {
@@ -37,7 +45,7 @@ __global__ void InitializeKernel(uchar3 *dary)
 	dary[offset] = color;
 }
 
-__global__ void SimulationKernel(uchar3 *dary, float* particlePosition, float* particleVelocity, int t, int DIMX, int DIMY)
+__global__ void SimulationKernel(uchar3 *dary, float* particlePosition, float* particleVelocity, float deltaT, int DIMX, int DIMY)
 {
 	// Since the array is ordered in WHC format
 	int offset = (2 * blockIdx.x * blockDim.x) + threadIdx.x;
@@ -46,9 +54,45 @@ __global__ void SimulationKernel(uchar3 *dary, float* particlePosition, float* p
 	int screenX = (int) (particlePosition[offset] * DIMX);
 	int screenY = (int) (particlePosition[offset+1] * DIMY);
 
+	// Clear the current pixel on the screen
+	int realOffset = (screenY * DIMY) + screenX;
+	dary[realOffset] = make_uchar3(0, 0, 0);
+
+	// Update the parameters of the model
+	particleVelocity[offset] = particleVelocity[offset] + (ACCELERATION_X * deltaT);
+	particleVelocity[offset+1] = particleVelocity[offset+1] + (ACCELERATION_Y * deltaT);
+
+	particlePosition[offset] = particlePosition[offset] + (particleVelocity[offset] * deltaT);
+	particlePosition[offset+1] = particlePosition[offset+1] + (particleVelocity[offset+1] * deltaT);
+
+	// Make sure the particle position is within the range [0,1]
+	if (particlePosition[offset] > 1.0)
+	{
+		particlePosition[offset] = 0.0;
+	}
+	else if (particlePosition[offset] < 0.0)
+	{
+		particlePosition[offset] = 0.99;
+	}
+
+	if (particlePosition[offset+1] > 1.0)
+	{
+		particlePosition[offset+1] = 0.0;
+		particleVelocity[offset+1] = 0.0;
+	}
+	else if (particlePosition[offset+1] < 0.0)
+	{
+		particlePosition[offset+1] = 0.99;
+		particleVelocity[offset+1] = 0.0;
+	}
+
+	// Compute the new location of the pixel
+	screenX = (int) (particlePosition[offset] * DIMX);
+	screenY = (int) (particlePosition[offset+1] * DIMY);
+
 	// // Add the corresponding color to the pixel
-	uchar3 color = make_uchar3(255, 0, 0);
-	int realOffset = (screenX * DIMX) + screenY;
+	uchar3 color = make_uchar3(255, (int) (255 * particleVelocity[offset]), (int) (128 * particleVelocity[offset+1]));
+	realOffset = (screenY * DIMY) + screenX;
 	dary[realOffset] = color;
 }
 
@@ -108,7 +152,7 @@ void simulate(uchar3 *ptr, int tick, int w, int h)
 	// if (dataInitialized)
 	// 	InitializeKernel<<<w, h>>>(ptr);
 
-	SimulationKernel<<<NUM_PARTICLES, 1>>>(ptr, d_particlePosition, d_particleVelocity, tick, h, w);
+	SimulationKernel<<<NUM_PARTICLES, 1>>>(ptr, d_particlePosition, d_particleVelocity, lastElapsedTime, w, h);
 
 	err=cudaGetLastError();
 	if(err!=cudaSuccess) {
@@ -118,7 +162,8 @@ void simulate(uchar3 *ptr, int tick, int w, int h)
 	cudaEventRecord(stop);
 	cudaEventSynchronize(stop);
 	cudaEventElapsedTime(&elapsedtime, start, stop);
-	printf("Time used: %.1f (ms)\n",elapsedtime);
+	printf("Time used: %.1f (ms)\n", elapsedtime);
+	lastElapsedTime = elapsedtime;
 
 	cudaEventDestroy  ( start);
 	cudaEventDestroy  ( stop);
