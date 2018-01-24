@@ -10,11 +10,11 @@ http://cs.umw.edu/~finlayson/class/fall16/cpsc425/notes/cuda-random.html
 #include "curand_kernel.h"
 
 #define MAX_THREADS_PER_BLOCK 1024
-#define USE_PARTICLES_FORCES true
+#define USE_PARTICLE_FORCES false
 
 #define ACCELERATION_X 0.0
 #define ACCELERATION_Y -0.981
-#define CONSTANT 0.000
+#define CONSTANT 0.000001
 #define NUM_PARTICLES 200
 
 float* d_particlePosition = NULL;
@@ -56,6 +56,14 @@ __global__ void InitializeKernel(uchar3 *dary)
 __global__ void ForceComputationKernel(float* particlePosition, float* particleVelocity, float* particleMass, float* particleAcceleration, int DIMX, int DIMY)
 {
 	int offset = (2 * blockIdx.x * blockDim.x) + threadIdx.x;
+	
+	// Convert particle position into pixel coordinates
+	int screenX = (int) ((1.0 - particlePosition[offset]) * DIMX);
+	int screenY = (int) ((1.0 - particlePosition[offset+1]) * DIMY);
+	if (screenX > 0)
+	  screenX--;
+	if (screenY > 0)
+	  screenY--;
 
 	// Compute force exerted by all other partices on the current particle
 	float totalForce_x = 0.0;
@@ -65,18 +73,23 @@ __global__ void ForceComputationKernel(float* particlePosition, float* particleV
 		if (i != blockIdx.x)
 		{
 			int index = i * 2;
-			int screenX_new = (int) (particlePosition[index] * DIMX);
-			int screenY_new = (int) (particlePosition[index+1] * DIMY);
+			//int screenX_new = (int) (particlePosition[index] * DIMX);
+			//int screenY_new = (int) (particlePosition[index+1] * DIMY);
+			// Convert particle position into pixel coordinates
+			int screenX_new = (int) ((1.0 - particlePosition[index]) * DIMX);
+			int screenY_new = (int) ((1.0 - particlePosition[index+1]) * DIMY);
+			if (screenX_new > 0)
+			  screenX_new--;
+			if (screenY_new > 0)
+			  screenY_new--;
 
-			float xDist = (particlePosition[index] - particlePosition[offset]);
-			float yDist = (particlePosition[index+1] - particlePosition[offset+1]);
-			// float xDist = (screenX_new - screenX);
-			// float yDist = (screenY_new - screenY);
+			//float xDist = (particlePosition[index] - particlePosition[offset]);
+			//float yDist = (particlePosition[index+1] - particlePosition[offset+1]);
+			float xDist = (screenX_new - screenX);
+			float yDist = (screenY_new - screenY);
 			float radius = sqrt((xDist * xDist) + (yDist * yDist));
-			if (radius == 0.0)
-				continue;
-				// radius = 1.0;
-			// printf("Radius: %f\n", radius);
+			if (radius < 0.00001)
+				radius=1.0;
 			// F_x = (m_1 * v_1x * m_2 * v_2x) / r
 			float currentParticleForce_x = (particleMass[i] * particleVelocity[index] * particleMass[blockIdx.x] * particleVelocity[offset]) / radius;
 			float currentParticleForce_y = (particleMass[i] * particleVelocity[index+1] * particleMass[blockIdx.x] * particleVelocity[offset+1]) / radius;
@@ -91,71 +104,35 @@ __global__ void ForceComputationKernel(float* particlePosition, float* particleV
 	float acceleration_y = totalForce_y + ACCELERATION_Y;
 	if ((isinf(acceleration_x) || isinf(acceleration_y)) || (isnan(acceleration_x) || isnan(acceleration_y)))
 	{
-		asm("trap;");
-		return;
+	  if (isnan(acceleration_x) || isnan(acceleration_y))
+	    printf("Inf encountered\n");
+	  printf("Terminating the program\n");
+	  asm("trap;");
 	}
-	printf("Acceleration: %f %f\n", acceleration_x, acceleration_y);
+	//printf("Acceleration: %f %f\n", acceleration_x, acceleration_y);
 	particleAcceleration[offset] = acceleration_x;
 	particleAcceleration[offset+1] = acceleration_y;
 }
 
 __global__ void SimulationKernel(uchar3 *dary, float* particlePosition, float* particleVelocity, float* particleMass, float* particleAcceleration, float deltaT, int DIMX, int DIMY, curandState_t* states)
 {
+  deltaT = 0.001;
 	// Since the array is ordered in WHC format
 	int offset = (2 * blockIdx.x * blockDim.x) + threadIdx.x;
 
 	// Convert particle position into pixel coordinates
-	int screenX = (int) (particlePosition[offset] * DIMX);
-	int screenY = (int) (particlePosition[offset+1] * DIMY);
+	int screenX = (int) ((1.0 - particlePosition[offset]) * DIMX);
+	int screenY = (int) ((particlePosition[offset+1]) * DIMY);
+	if (screenX > 0)
+	  screenX--;
+	if (screenY > 0)
+	  screenY--;
 
 	// Clear the current pixel on the screen
-	int realOffset = (screenY * DIMY) + screenX;
+	int realOffset = (screenX * DIMX) + screenY;
 	dary[realOffset] = make_uchar3(0, 0, 0);
 
-#if USE_PARTICLES_FORCES
-	// // Compute force exerted by all other partices on the current particle
-	// float totalForce_x = 0.0;
-	// float totalForce_y = 0.0;
-	// for (int i = 0; i < NUM_PARTICLES; i++)
-	// {
-	// 	if (i != blockIdx.x)
-	// 	{
-	// 		int index = i * 2;
-	// 		int screenX_new = (int) (particlePosition[index] * DIMX);
-	// 		int screenY_new = (int) (particlePosition[index+1] * DIMY);
-
-	// 		float xDist = (particlePosition[index] - particlePosition[offset]);
-	// 		float yDist = (particlePosition[index+1] - particlePosition[offset+1]);
-	// 		// float xDist = (screenX_new - screenX);
-	// 		// float yDist = (screenY_new - screenY);
-	// 		float radius = sqrt((xDist * xDist) + (yDist * yDist));
-	// 		if (radius == 0.0)
-	// 			continue;
-	// 			// radius = 1.0;
-	// 		printf("Radius: %f\n", radius);
-	// 		// F_x = (m_1 * v_1x * m_2 * v_2x) / r
-	// 		float currentParticleForce_x = (particleMass[i] * particleVelocity[index] * particleMass[blockIdx.x] * particleVelocity[offset]) / radius;
-	// 		float currentParticleForce_y = (particleMass[i] * particleVelocity[index+1] * particleMass[blockIdx.x] * particleVelocity[offset+1]) / radius;
-
-	// 		totalForce_x += (currentParticleForce_x * CONSTANT);
-	// 		totalForce_y += (currentParticleForce_y * CONSTANT);
-	// 	}
-	// }
-
-	// // Convert the force to acceleration
-	// float acceleration_x = totalForce_x + ACCELERATION_X;
-	// float acceleration_y = totalForce_y + ACCELERATION_Y;
-	// if ((isinf(acceleration_x) || isinf(acceleration_y)) || (isnan(acceleration_x) || isnan(acceleration_y)))
-	// {
-	// 	asm("trap;");
-	// 	return;
-	// }
-	// printf("Acceleration: %f %f\n", acceleration_x, acceleration_y);
-
-	// Update the parameters of the model
-	// particleVelocity[offset] = particleVelocity[offset] + (acceleration_x * deltaT);
-	// particleVelocity[offset+1] = particleVelocity[offset+1] + (acceleration_y * deltaT);
-
+#if USE_PARTICLE_FORCES
 	particleVelocity[offset] = particleVelocity[offset] + (particleAcceleration[offset] * deltaT);
 	particleVelocity[offset+1] = particleVelocity[offset+1] + (particleAcceleration[offset+1] * deltaT);
 
@@ -164,6 +141,12 @@ __global__ void SimulationKernel(uchar3 *dary, float* particlePosition, float* p
 	particleVelocity[offset] = particleVelocity[offset] + (ACCELERATION_X * deltaT);
 	particleVelocity[offset+1] = particleVelocity[offset+1] + (ACCELERATION_Y * deltaT);
 #endif
+	// Adjust the velocity in case the velocity exceeds 1
+	if ((abs(particleVelocity[offset] * deltaT) > 1.0) || (abs(particleVelocity[offset+1] * deltaT) > 1.0))
+	{
+	  particleVelocity[offset] = particleVelocity[offset] * 0.1;
+	  particleVelocity[offset+1] = particleVelocity[offset+1] * 0.1;
+	}
 
 	particlePosition[offset] = particlePosition[offset] + (particleVelocity[offset] * deltaT);
 	particlePosition[offset+1] = particlePosition[offset+1] + (particleVelocity[offset+1] * deltaT);
@@ -172,30 +155,36 @@ __global__ void SimulationKernel(uchar3 *dary, float* particlePosition, float* p
 	if (particlePosition[offset] > 1.0)
 	{
 		particlePosition[offset] = 0.0;
+		particleVelocity[offset] = curand_uniform(&states[blockIdx.x * blockDim.x]); // Thread ID should be replaced with 1 as the value of y is being generated
 	}
 	else if (particlePosition[offset] < 0.0)
 	{
-		particlePosition[offset] = 0.99;
+		particlePosition[offset] = 1.0;
+		particleVelocity[offset] = curand_uniform(&states[blockIdx.x * blockDim.x]); // Thread ID should be replaced with 1 as the value of y is being generated
 	}
 
 	if (particlePosition[offset+1] > 1.0)
 	{
 		particlePosition[offset+1] = 0.0;
-		particleVelocity[offset+1] = -curand_uniform(&states[blockIdx.x * blockDim.x + threadIdx.x]);
+		
 	}
 	else if (particlePosition[offset+1] < 0.0)
 	{
-		particlePosition[offset+1] = 0.99;
-		particleVelocity[offset+1] = -curand_uniform(&states[blockIdx.x * blockDim.x + threadIdx.x]);
+		particlePosition[offset+1] = 1.0;
+		//particleVelocity[offset] = curand_uniform(&states[blockIdx.x * blockDim.x + threadIdx.x]) - 0.5;
 	}
 
 	// Compute the new location of the pixel
-	screenX = (int) (particlePosition[offset] * DIMX);
-	screenY = (int) (particlePosition[offset+1] * DIMY);
+	screenX = (int) ((1.0 - particlePosition[offset]) * DIMX);
+	screenY = (int) ((particlePosition[offset+1]) * DIMY);
+	if (screenX > 0)
+	  screenX--;
+	if (screenY > 0)
+	  screenY--;
 
 	// // Add the corresponding color to the pixel
 	uchar3 color = make_uchar3(255, (int) (255 * particleVelocity[offset]), (int) (128 * particleVelocity[offset+1]));
-	realOffset = (screenY * DIMY) + screenX;
+	realOffset = (screenX * DIMX) + screenY;
 	dary[realOffset] = color;
 }
 
@@ -208,7 +197,7 @@ void simulate(uchar3 *ptr, int tick, int w, int h)
 	cudaError_t err=cudaSuccess;
 	cudaEvent_t start,stop;
 	float elapsedtime;
-	// bool dataInitialized = false;
+	bool dataInitialized = false;
 
 	// Initialize the data structures if not yet initialized
 	if (d_particlePosition == NULL)
@@ -255,7 +244,7 @@ void simulate(uchar3 *ptr, int tick, int w, int h)
 		randoms<<<NUM_PARTICLES, 1>>>(states, d_particleMass);
 		// cudaFree(states);
 
-		// dataInitialized = true;
+		dataInitialized = true;
 	}
 
 	cudaEventCreate  ( &start);
@@ -263,9 +252,9 @@ void simulate(uchar3 *ptr, int tick, int w, int h)
 
 	cudaEventRecord(start);
 
-	// if (dataInitialized)
-	// 	InitializeKernel<<<w, h>>>(ptr);
-#if USE_PARTICLES_FORCES
+	if (dataInitialized)
+		InitializeKernel<<<w, h>>>(ptr);
+#if USE_PARTICLE_FORCES
 	ForceComputationKernel<<<NUM_PARTICLES, 1>>>(d_particlePosition, d_particleVelocity, d_particleMass, d_particleAcceleration, w, h);
 #endif
 
