@@ -18,7 +18,7 @@ __global__ void ColorBufferFillKernel(uchar3 *dary, float t, int DIMX, int DIMY,
 		return;
 
 	// Since the array is ordered in WHC format
-	int offset = (i) + (j * DIMX);
+	int offset = (i) + (j * DIMY);
 
 	uchar3 color;
 	
@@ -87,7 +87,7 @@ void simulate(uchar3 *ptr, int tick, int w, int h)
 
 	dim3 dimBlock(blockDim, blockDim);
 	// dim3 dimBlock((int)(w / divisions), (int)(h / divisions));
-	dim3 dimGrid((w + dimBlock.x - 1) / dimBlock.x, (h + dimBlock.y - 1) / dimBlock.y);
+	dim3 dimGrid((h + dimBlock.y - 1) / dimBlock.y, (w + dimBlock.x - 1) / dimBlock.x);
 	printf("Grid dims: (%d, %d)\n", dimGrid.x, dimGrid.y);
 
 	// Determine the number of kernels to be colored the same

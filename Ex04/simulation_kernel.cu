@@ -10,19 +10,17 @@ http://cs.umw.edu/~finlayson/class/fall16/cpsc425/notes/cuda-random.html
 #include "curand_kernel.h"
 
 #define MAX_THREADS_PER_BLOCK 1024
-#define USE_PARTICLE_FORCES false
+#define USE_PARTICLE_FORCES true
 
 #define ACCELERATION_X 0.0
-#define ACCELERATION_Y -0.981
-#define CONSTANT 0.000001
+#define ACCELERATION_Y (-0.981)
+#define CONSTANT 3
 #define NUM_PARTICLES 200
 
 float* d_particlePosition = NULL;
 float* d_particleVelocity = NULL;
 float* d_particleMass = NULL;
 float* d_particleAcceleration = NULL;
-/* CUDA's random number library uses curandState_t to keep track of the seed value
-	we will store a random state for every thread  */
 curandState_t* states;
 
 float lastElapsedTime = 0.0;
@@ -58,8 +56,8 @@ __global__ void ForceComputationKernel(float* particlePosition, float* particleV
 	int offset = (2 * blockIdx.x * blockDim.x) + threadIdx.x;
 	
 	// Convert particle position into pixel coordinates
-	int screenX = (int) ((1.0 - particlePosition[offset]) * DIMX);
-	int screenY = (int) ((1.0 - particlePosition[offset+1]) * DIMY);
+	int screenX = (int) ((particlePosition[offset]) * DIMX);
+	int screenY = (int) ((particlePosition[offset+1]) * DIMY);
 	if (screenX > 0)
 	  screenX--;
 	if (screenY > 0)
@@ -73,23 +71,23 @@ __global__ void ForceComputationKernel(float* particlePosition, float* particleV
 		if (i != blockIdx.x)
 		{
 			int index = i * 2;
-			//int screenX_new = (int) (particlePosition[index] * DIMX);
-			//int screenY_new = (int) (particlePosition[index+1] * DIMY);
-			// Convert particle position into pixel coordinates
-			int screenX_new = (int) ((1.0 - particlePosition[index]) * DIMX);
-			int screenY_new = (int) ((1.0 - particlePosition[index+1]) * DIMY);
+			int screenX_new = (int) ((particlePosition[index]) * DIMX);
+			int screenY_new = (int) ((particlePosition[index+1]) * DIMY);
 			if (screenX_new > 0)
-			  screenX_new--;
+				screenX_new--;
 			if (screenY_new > 0)
-			  screenY_new--;
+				screenY_new--;
 
-			//float xDist = (particlePosition[index] - particlePosition[offset]);
-			//float yDist = (particlePosition[index+1] - particlePosition[offset+1]);
 			float xDist = (screenX_new - screenX);
 			float yDist = (screenY_new - screenY);
+			// float xDist = (particlePosition[offset] - particlePosition[index]);
+			// float yDist = (particlePosition[offset+1] - particlePosition[index+1]);
 			float radius = sqrt((xDist * xDist) + (yDist * yDist));
 			if (radius < 0.00001)
-				radius=1.0;
+			{
+				// radius=0.00001;
+				radius = 1;
+			}
 			// F_x = (m_1 * v_1x * m_2 * v_2x) / r
 			float currentParticleForce_x = (particleMass[i] * particleVelocity[index] * particleMass[blockIdx.x] * particleVelocity[offset]) / radius;
 			float currentParticleForce_y = (particleMass[i] * particleVelocity[index+1] * particleMass[blockIdx.x] * particleVelocity[offset+1]) / radius;
@@ -116,20 +114,20 @@ __global__ void ForceComputationKernel(float* particlePosition, float* particleV
 
 __global__ void SimulationKernel(uchar3 *dary, float* particlePosition, float* particleVelocity, float* particleMass, float* particleAcceleration, float deltaT, int DIMX, int DIMY, curandState_t* states)
 {
-  deltaT = 0.001;
+	deltaT = 0.005;
 	// Since the array is ordered in WHC format
 	int offset = (2 * blockIdx.x * blockDim.x) + threadIdx.x;
 
 	// Convert particle position into pixel coordinates
-	int screenX = (int) ((1.0 - particlePosition[offset]) * DIMX);
+	int screenX = (int) ((particlePosition[offset]) * DIMX);
 	int screenY = (int) ((particlePosition[offset+1]) * DIMY);
 	if (screenX > 0)
-	  screenX--;
+		screenX--;
 	if (screenY > 0)
-	  screenY--;
+		screenY--;
 
 	// Clear the current pixel on the screen
-	int realOffset = (screenX * DIMX) + screenY;
+	int realOffset = (screenY * DIMX) + screenX;
 	dary[realOffset] = make_uchar3(0, 0, 0);
 
 #if USE_PARTICLE_FORCES
@@ -155,36 +153,38 @@ __global__ void SimulationKernel(uchar3 *dary, float* particlePosition, float* p
 	if (particlePosition[offset] > 1.0)
 	{
 		particlePosition[offset] = 0.0;
-		particleVelocity[offset] = curand_uniform(&states[blockIdx.x * blockDim.x]); // Thread ID should be replaced with 1 as the value of y is being generated
+		
 	}
 	else if (particlePosition[offset] < 0.0)
 	{
 		particlePosition[offset] = 1.0;
-		particleVelocity[offset] = curand_uniform(&states[blockIdx.x * blockDim.x]); // Thread ID should be replaced with 1 as the value of y is being generated
 	}
 
 	if (particlePosition[offset+1] > 1.0)
 	{
 		particlePosition[offset+1] = 0.0;
-		
+		particleVelocity[offset] = curand_uniform(&states[blockIdx.x * blockDim.x]); // Thread ID should be replaced with 0 as the value of x is being generated
+		particleVelocity[offset+1] = -curand_uniform(&states[blockIdx.x * blockDim.x + 1]); // Thread ID should be replaced with 1 as the value of y is being generated
 	}
 	else if (particlePosition[offset+1] < 0.0)
 	{
 		particlePosition[offset+1] = 1.0;
-		//particleVelocity[offset] = curand_uniform(&states[blockIdx.x * blockDim.x + threadIdx.x]) - 0.5;
+		particleVelocity[offset] = curand_uniform(&states[blockIdx.x * blockDim.x]); // Thread ID should be replaced with 0 as the value of x is being generated
+		particleVelocity[offset+1] = -curand_uniform(&states[blockIdx.x * blockDim.x + 1]); // Thread ID should be replaced with 1 as the value of y is being generated
 	}
 
 	// Compute the new location of the pixel
-	screenX = (int) ((1.0 - particlePosition[offset]) * DIMX);
+	screenX = (int) ((particlePosition[offset]) * DIMX);
 	screenY = (int) ((particlePosition[offset+1]) * DIMY);
 	if (screenX > 0)
-	  screenX--;
+		screenX--;
 	if (screenY > 0)
-	  screenY--;
+		screenY--;
 
 	// // Add the corresponding color to the pixel
 	uchar3 color = make_uchar3(255, (int) (255 * particleVelocity[offset]), (int) (128 * particleVelocity[offset+1]));
-	realOffset = (screenX * DIMX) + screenY;
+	// realOffset = (screenX * DIMY) + screenY;
+	realOffset = (screenY * DIMX) + screenX;
 	dary[realOffset] = color;
 }
 
@@ -193,6 +193,12 @@ void simulate(uchar3 *ptr, int tick, int w, int h)
 	/* ptr is a pointer to an array of size w*h*sizeof(uchar3).
 	   uchar3 is a structure with x,y,z coordinates to contain
 	   red,yellow,blue - values for a pixel (Range [0,255])
+	*/
+	/*
+	 [(h-1)w, (h-1)(w+1), (h-1)(w+2), ..., (h-1)(w-1)]
+	 ....
+	 [w, w+1, w+2, ..., 2w-1]
+	 [0, 1, 2, 3, ..., w-1]
 	*/
 	cudaError_t err=cudaSuccess;
 	cudaEvent_t start,stop;
@@ -242,7 +248,6 @@ void simulate(uchar3 *ptr, int tick, int w, int h)
 		randoms<<<NUM_PARTICLES, 2>>>(states, d_particlePosition);
 		randoms<<<NUM_PARTICLES, 2>>>(states, d_particleVelocity);
 		randoms<<<NUM_PARTICLES, 1>>>(states, d_particleMass);
-		// cudaFree(states);
 
 		dataInitialized = true;
 	}
