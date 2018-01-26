@@ -38,7 +38,6 @@ __global__ void init(unsigned int seed, curandState_t* states) {
 /* this GPU kernel takes an array of states, and an array of ints, and puts a random int into each */
 __global__ void randoms(curandState_t* states, float* numbers) {
 	/* curand works like rand - except that it takes a state as a parameter */
-	// numbers[blockIdx.x] = curand(&states[blockIdx.x]) % 100;
 	numbers[blockIdx.x * blockDim.x + threadIdx.x] = curand_uniform(&states[blockIdx.x * blockDim.x + threadIdx.x]);
 }
 
@@ -46,8 +45,7 @@ __global__ void InitializeKernel(uchar3 *dary)
 {
 	// Since the array is ordered in WHC format
 	int offset = blockIdx.x * blockDim.x + threadIdx.x;
-	uchar3 color;
-	color = make_uchar3(0, 0, 0);
+	uchar3 color = make_uchar3(0, 0, 0);
 	dary[offset] = color;
 }
 
@@ -83,10 +81,9 @@ __global__ void ForceComputationKernel(float* particlePosition, float* particleV
 			// float xDist = (particlePosition[offset] - particlePosition[index]);
 			// float yDist = (particlePosition[offset+1] - particlePosition[index+1]);
 			float radius = sqrt((xDist * xDist) + (yDist * yDist));
-			if (radius < 0.00001)
+			if (radius < 1.0)
 			{
-				// radius=0.00001;
-				radius = 1;
+				radius = 1.0;
 			}
 			// F_x = (m_1 * v_1x * m_2 * v_2x) / r
 			float currentParticleForce_x = (particleMass[i] * particleVelocity[index] * particleMass[blockIdx.x] * particleVelocity[offset]) / radius;
@@ -102,12 +99,11 @@ __global__ void ForceComputationKernel(float* particlePosition, float* particleV
 	float acceleration_y = totalForce_y + ACCELERATION_Y;
 	if ((isinf(acceleration_x) || isinf(acceleration_y)) || (isnan(acceleration_x) || isnan(acceleration_y)))
 	{
-	  if (isnan(acceleration_x) || isnan(acceleration_y))
-	    printf("Inf encountered\n");
-	  printf("Terminating the program\n");
-	  asm("trap;");
+		if (isnan(acceleration_x) || isnan(acceleration_y))
+			printf("Inf encountered\n");
+		printf("Terminating the program\n");
+		asm("trap;");
 	}
-	//printf("Acceleration: %f %f\n", acceleration_x, acceleration_y);
 	particleAcceleration[offset] = acceleration_x;
 	particleAcceleration[offset+1] = acceleration_y;
 }
