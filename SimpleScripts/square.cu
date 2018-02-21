@@ -42,7 +42,7 @@ int main()
 	for (int i = 0; i < ARRAY_SIZE; i++)
 	{
 		printf ("%f", h_out[i]);
-		printf ((i % 4 == 0)? "\n" : "\t");
+		printf ((i % 4 == 3)? "\n" : "\t");
 	}
 
 	free(h_in);
