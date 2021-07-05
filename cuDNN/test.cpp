@@ -220,6 +220,7 @@ int main(int argc, char const *argv[])
   cudaMemcpy(h_output, d_output, image_bytes, cudaMemcpyDeviceToHost);
 
   cv::Mat convertedImg = save_image("cudnn-out.png", h_output, height, width);
+  cv::imshow("Input", image);
   cv::imshow("Output", convertedImg);
   cv::waitKey(-1);
 
