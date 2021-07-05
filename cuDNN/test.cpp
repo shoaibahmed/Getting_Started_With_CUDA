@@ -40,7 +40,7 @@ cv::Mat save_image(const char *output_filename,
   //               /*threshold=*/0,
   //               /*maxval=*/0,
   //               cv::THRESH_TOZERO);
-  
+
   cv::normalize(output_image, output_image, 0.0, 255.0, cv::NORM_MINMAX);
   output_image.convertTo(output_image, CV_8UC3);
   cv::imwrite(output_filename, output_image);
@@ -114,7 +114,10 @@ int main(int argc, char const *argv[])
   checkCUDNN(cudnnGetConvolutionForwardAlgorithmMaxCount(cudnn, &requestedAlgoCount));
   std::vector<cudnnConvolutionFwdAlgoPerf_t> results(requestedAlgoCount);
   checkCUDNN(cudnnFindConvolutionForwardAlgorithm(cudnn,
-                                                  input_descriptor, kernel_descriptor, convolution_descriptor, output_descriptor,
+                                                  input_descriptor, 
+                                                  kernel_descriptor, 
+                                                  convolution_descriptor, 
+                                                  output_descriptor,
                                                   requestedAlgoCount,
                                                   &returnedAlgoCount,
                                                   &results[0]));
