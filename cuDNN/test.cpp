@@ -260,6 +260,7 @@ int main(int argc, char const *argv[])
   cudnnDestroyTensorDescriptor(output_descriptor);
   cudnnDestroyFilterDescriptor(kernel_descriptor);
   cudnnDestroyConvolutionDescriptor(convolution_descriptor);
+  cudnnDestroyActivationDescriptor(activation_descriptor);
 
   cudnnDestroy(cudnn);
 }
