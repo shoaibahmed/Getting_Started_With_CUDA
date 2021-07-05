@@ -33,12 +33,14 @@ cv::Mat save_image(const char *output_filename,
                    int width)
 {
   cv::Mat output_image(height, width, CV_32FC3, buffer);
-  // Make negative values zero.
-  cv::threshold(output_image,
-                output_image,
-                /*threshold=*/0,
-                /*maxval=*/0,
-                cv::THRESH_TOZERO);
+  
+  // Make negative values zero (only required when there is no ReLU).
+  // cv::threshold(output_image,
+  //               output_image,
+  //               /*threshold=*/0,
+  //               /*maxval=*/0,
+  //               cv::THRESH_TOZERO);
+  
   cv::normalize(output_image, output_image, 0.0, 255.0, cv::NORM_MINMAX);
   output_image.convertTo(output_image, CV_8UC3);
   cv::imwrite(output_filename, output_image);
@@ -215,6 +217,27 @@ int main(int argc, char const *argv[])
                                      &beta,
                                      output_descriptor,
                                      d_output));
+
+  // Include for cudnn descriptor for the activation function
+  cudnnActivationDescriptor_t activation_descriptor;
+  checkCUDNN(cudnnCreateActivationDescriptor(&activation_descriptor));
+  checkCUDNN(cudnnSetActivationDescriptor(activation_descriptor,
+                                          /*mode=*/CUDNN_ACTIVATION_RELU,
+                                          /*reluNanOpt=*/CUDNN_PROPAGATE_NAN,
+                                          /*relu_coef=*/0));
+
+  // Perform the forward pass of the activation
+  checkCUDNN(cudnnActivationForward(cudnn,
+                                    activation_descriptor,
+                                    &alpha,
+                                    output_descriptor,
+                                    d_output,
+                                    &beta,
+                                    output_descriptor,
+                                    d_output));
+
+  // Release resources
+  cudnnDestroyActivationDescriptor(activation_descriptor);  
 
   float *h_output = new float[image_bytes];
   cudaMemcpy(h_output, d_output, image_bytes, cudaMemcpyDeviceToHost);
