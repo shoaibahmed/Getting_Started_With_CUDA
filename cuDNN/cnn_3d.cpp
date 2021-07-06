@@ -33,7 +33,7 @@ cv::Mat save_image(const char *output_filename,
                    int width)
 {
   cv::Mat output_image(height, width, CV_32FC3, buffer);
-  
+
   // Make negative values zero (only required when there is no ReLU).
   // cv::threshold(output_image,
   //               output_image,
@@ -60,51 +60,55 @@ int main(int argc, char const *argv[])
     std::cerr << "Unable to load image..." << std::endl;
     std::exit(EXIT_FAILURE);
   }
-  std::cout << "Image size: " << image.cols << ", " << image.rows << std::endl;
+  std::cout << "Image size: " << image.cols << ", " << image.rows << ", " << image.channels() << " (" << image.size() << ")" << std::endl;
+  int batch_size = 1, channels = 3, height = image.rows, width = image.cols;
 
   // Initialize cudnn descriptor for the input
+  int nbDims = 4;
+  // int tensorShape[] = {1, height, width, channels};  // BHWC
+  // int strides[] = {tensorShape[1] * tensorShape[2] * tensorShape[3], tensorShape[2] * tensorShape[3], tensorShape[3], 1};  // Strides should define the BHWC format
+  int tensorShape[] = {1, channels, height, width};                           // BCHW
+  int strides[] = {height * width * channels, 1, width * channels, channels}; // Strides should define the BCHW format
   cudnnTensorDescriptor_t input_descriptor;
   checkCUDNN(cudnnCreateTensorDescriptor(&input_descriptor));
-  checkCUDNN(cudnnSetTensor4dDescriptor(input_descriptor,
-                                        /*format=*/CUDNN_TENSOR_NHWC,
+  checkCUDNN(cudnnSetTensorNdDescriptor(input_descriptor,
                                         /*dataType=*/CUDNN_DATA_FLOAT,
-                                        /*batch_size=*/1,
-                                        /*channels=*/3,
-                                        /*image_height=*/image.rows,
-                                        /*image_width=*/image.cols));
+                                        /*nbDims=*/nbDims,
+                                        /*dimA[]=*/tensorShape,
+                                        /*strideA[]=*/strides));
 
   // Initialize cudnn descriptor for the output
   cudnnTensorDescriptor_t output_descriptor;
   checkCUDNN(cudnnCreateTensorDescriptor(&output_descriptor));
-  checkCUDNN(cudnnSetTensor4dDescriptor(output_descriptor,
-                                        /*format=*/CUDNN_TENSOR_NHWC,
+  checkCUDNN(cudnnSetTensorNdDescriptor(output_descriptor,
                                         /*dataType=*/CUDNN_DATA_FLOAT,
-                                        /*batch_size=*/1,
-                                        /*channels=*/3,
-                                        /*image_height=*/image.rows,
-                                        /*image_width=*/image.cols));
+                                        /*nbDims=*/nbDims,
+                                        /*dimA[]=*/tensorShape,
+                                        /*strideA[]=*/strides));
 
   // Initialize cudnn descriptor for the kernel
   cudnnFilterDescriptor_t kernel_descriptor;
+  int filterDims[] = {3, 3, 3, 3};
   checkCUDNN(cudnnCreateFilterDescriptor(&kernel_descriptor));
-  checkCUDNN(cudnnSetFilter4dDescriptor(kernel_descriptor,
+  checkCUDNN(cudnnSetFilterNdDescriptor(kernel_descriptor,
                                         /*dataType=*/CUDNN_DATA_FLOAT,
                                         /*format=*/CUDNN_TENSOR_NCHW,
-                                        /*out_channels=*/3,
-                                        /*in_channels=*/3,
-                                        /*kernel_height=*/3,
-                                        /*kernel_width=*/3));
+                                        /*nbDims=*/nbDims,
+                                        /*filterDimA=*/filterDims));
 
   // Initialize cudnn descriptor for the convolution operation
   cudnnConvolutionDescriptor_t convolution_descriptor;
   checkCUDNN(cudnnCreateConvolutionDescriptor(&convolution_descriptor));
-  checkCUDNN(cudnnSetConvolution2dDescriptor(convolution_descriptor,
-                                             /*pad_height=*/1,
-                                             /*pad_width=*/1,
-                                             /*vertical_stride=*/1,
-                                             /*horizontal_stride=*/1,
-                                             /*dilation_height=*/1,
-                                             /*dilation_width=*/1,
+  int num_vals = 2;
+  int pad[] = {1, 1};
+  int stride[] = {1, 1};
+  int dilation[] = {1, 1};
+
+  checkCUDNN(cudnnSetConvolutionNdDescriptor(convolution_descriptor,
+                                             /*array_length=*/num_vals,
+                                             /*padA[]=*/pad,
+                                             /*filterStride[]=*/stride,
+                                             /*dilationA=*/dilation,
                                              /*mode=*/CUDNN_CROSS_CORRELATION,
                                              /*computeType=*/CUDNN_DATA_FLOAT));
 
@@ -114,9 +118,9 @@ int main(int argc, char const *argv[])
   checkCUDNN(cudnnGetConvolutionForwardAlgorithmMaxCount(cudnn, &requestedAlgoCount));
   std::vector<cudnnConvolutionFwdAlgoPerf_t> results(requestedAlgoCount);
   checkCUDNN(cudnnFindConvolutionForwardAlgorithm(cudnn,
-                                                  input_descriptor, 
-                                                  kernel_descriptor, 
-                                                  convolution_descriptor, 
+                                                  input_descriptor,
+                                                  kernel_descriptor,
+                                                  convolution_descriptor,
                                                   output_descriptor,
                                                   requestedAlgoCount,
                                                   &returnedAlgoCount,
@@ -169,7 +173,6 @@ int main(int argc, char const *argv[])
   cudaMalloc(&d_workspace, workspace_bytes);
 
   // Copy image data to the GPU
-  int batch_size = 1, channels = 3, height = image.rows, width = image.cols;
   int image_bytes = batch_size * channels * height * width * sizeof(float);
 
   float *d_input{nullptr};
@@ -239,9 +242,6 @@ int main(int argc, char const *argv[])
                                     output_descriptor,
                                     d_output));
 
-  // Release resources
-  cudnnDestroyActivationDescriptor(activation_descriptor);  
-
   float *h_output = new float[image_bytes];
   cudaMemcpy(h_output, d_output, image_bytes, cudaMemcpyDeviceToHost);
 
@@ -250,6 +250,7 @@ int main(int argc, char const *argv[])
   cv::imshow("Output", convertedImg);
   cv::waitKey(-1);
 
+  // Release resources
   delete[] h_output;
   cudaFree(d_kernel);
   cudaFree(d_input);
